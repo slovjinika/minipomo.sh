@@ -1,14 +1,18 @@
 #!/bin/bash
 
-# Parameter handling
+# Default pomodoro duration in seconds
+pomodoro_duration_seconds=1500  # 25 minutes
+
+# Process command-line arguments
 while getopts ":t:" opt; do
   case $opt in
     t)
-      pomodoro_duration=$(echo "$OPTARG" | sed 's/m$//') # Remove 'm' from the end
-      if [[ ! "$pomodoro_duration" =~ ^[0-9]+$ ]]; then
-        echo "Error: Invalid pomodoro time value. Use 'Xm' format, where X is the number of minutes."
+      duration_minutes=$(echo "$OPTARG" | sed 's/m$//')
+      if [[ ! "$duration_minutes" =~ ^[0-9]+$ ]]; then
+        echo "Error: Invalid duration. Use 'Xm' format (X being minutes)." >&2
         exit 1
       fi
+      pomodoro_duration_seconds=$((duration_minutes * 60))
       ;;
     \?)
       echo "Error: Unknown option -$OPTARG" >&2
@@ -21,37 +25,26 @@ while getopts ":t:" opt; do
   esac
 done
 
-# Default values
-if [[ -z "$pomodoro_duration" ]]; then
-  pomodoro_duration=25
-fi
 
 HISTORY_FILE=".pomodoro_history"
 
 # Function to display the timer
 display_timer() {
-  local remaining_time="$1"
-  local hours=$((remaining_time / 3600))
-  local minutes=$(( (remaining_time % 3600) / 60 ))
-  local seconds=$(( remaining_time % 60 ))
-  printf "\r%02d:%02d:%02d  " "$hours" "$minutes" "$seconds"
+  local remaining_seconds="$1"
+  local minutes=$((remaining_seconds / 60))
+  local seconds=$((remaining_seconds % 60))
+  printf "\r%02d:%02d  " "$minutes" "$seconds"
 }
 
 # Function to run the timer
 run_timer() {
-  local duration="$1"
-  local start_time=$(date +%s)
-  local end_time=$((start_time + duration * 60))
-
-  while true; do
-    remaining_time=$((end_time - $(date +%s)))
-    if [ $remaining_time -le 0 ]; then
-      echo -e "\nTime's up!"
-      break
-    fi
-    display_timer "$remaining_time"
+  local end_time=$((SECONDS + $1))
+  while (( SECONDS < end_time )); do
+    remaining_seconds=$((end_time - SECONDS))
+    display_timer "$remaining_seconds"
     sleep 1
   done
+  echo -e "\nTime's up!"
 }
 
 # Function to log the session
@@ -65,29 +58,27 @@ log_session() {
 # Main loop
 pomodoro_count=0
 while true; do
-  echo -e "\nPomodoro №$((pomodoro_count + 1)) (start? [y/n] or q to quit):"
-  read input
+  read -r -p "Pomodoro №$((pomodoro_count + 1)) (start? [y/n] or q to quit): " input
 
   case "$input" in
-    "y"|"Y")
-      run_timer "$pomodoro_duration"
-      log_session "Pomodoro" "$pomodoro_duration"
+    [yY])
+      run_timer "$pomodoro_duration_seconds"
+      log_session "Pomodoro" "$((pomodoro_duration_seconds / 60))"
       pomodoro_count=$((pomodoro_count + 1))
       ;;
-    "n"|"N")
+    [nN])
       continue
       ;;
-    "q"|"Q")
+    [qQ])
       break
       ;;
     *)
       echo "Invalid input."
-      continue
       ;;
   esac
 done
 
 echo -e "\nSession history:"
-cat "$HISTORY_FILE"
+cat "$HISTORY_FILE" || true # Suppress error if file doesn't exist
 
 echo -e "\nEnd."
